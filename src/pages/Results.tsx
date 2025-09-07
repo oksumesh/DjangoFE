@@ -4,71 +4,44 @@ import { Trophy, ArrowLeft, Calendar, Users, BarChart3 } from 'lucide-react';
 import { Poll } from '../types';
 import Button from '../components/UI/Button';
 import Card from '../components/UI/Card';
-
-// Mock results data
-const mockPoll: Poll = {
-  id: '1',
-  question: 'Which superhero movie should we watch this weekend?',
-  description: 'The community has spoken! Here are the final results.',
-  options: [
-    {
-      id: '1',
-      movie: {
-        id: '1',
-        title: 'Avengers: Endgame',
-        poster: 'https://images.pexels.com/photos/7991579/pexels-photo-7991579.jpeg?auto=compress&cs=tinysrgb&w=400',
-        genre: 'Action',
-        releaseDate: '2019-04-26',
-        rating: 8.4
-      },
-      votes: 67
-    },
-    {
-      id: '2',
-      movie: {
-        id: '2',
-        title: 'Spider-Man: No Way Home',
-        poster: 'https://images.pexels.com/photos/7991438/pexels-photo-7991438.jpeg?auto=compress&cs=tinysrgb&w=400',
-        genre: 'Action',
-        releaseDate: '2021-12-17',
-        rating: 8.2
-      },
-      votes: 45
-    },
-    {
-      id: '3',
-      movie: {
-        id: '3',
-        title: 'Doctor Strange: Multiverse of Madness',
-        poster: 'https://images.pexels.com/photos/7991680/pexels-photo-7991680.jpeg?auto=compress&cs=tinysrgb&w=400',
-        genre: 'Action',
-        releaseDate: '2022-05-06',
-        rating: 6.9
-      },
-      votes: 28
-    }
-  ],
-  deadline: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-  status: 'closed',
-  createdBy: 'admin',
-  createdAt: new Date().toISOString(),
-  totalVotes: 140
-};
+import { fetchPollResults } from '../services/polls';
 
 const Results: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [poll, setPoll] = useState<Poll | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // In real app, fetch poll results from API
-    setPoll(mockPoll);
+    const token = localStorage.getItem('access');
+    if (!token || !id) {
+      setError('Not authenticated or poll not found');
+      setLoading(false);
+      return;
+    }
+    fetchPollResults(id, token)
+      .then(data => {
+        setPoll(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        setError('Failed to load poll results');
+        setLoading(false);
+      });
   }, [id]);
 
-  if (!poll) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-dark-900 flex items-center justify-center">
         <div className="text-white text-lg">Loading results...</div>
+      </div>
+    );
+  }
+  if (error || !poll) {
+    return (
+      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+        <div className="text-red-400 text-lg">{error || 'Poll not found'}</div>
       </div>
     );
   }

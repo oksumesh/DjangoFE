@@ -1,14 +1,14 @@
 import React from 'react';
 
-const Home: React.FC = () => {
+const Search: React.FC = () => {
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#2F0000' }}>
       <div className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-4">Home Screen</h1>
-        <p className="text-gray-300">Hello World - Home Tab</p>
+        <h1 className="text-4xl font-bold text-white mb-4">Search Screen</h1>
+        <p className="text-gray-300">Hello World - Search Tab</p>
       </div>
     </div>
   );
 };
 
-export default Home;
+export default Search;

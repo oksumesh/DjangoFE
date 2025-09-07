@@ -4,60 +4,7 @@ import { Clock, Users, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Poll } from '../types';
 import Button from '../components/UI/Button';
 import Card from '../components/UI/Card';
-
-// Mock poll data (in real app, this would come from API)
-const mockPoll: Poll = {
-  id: '1',
-  question: 'Which superhero movie should we watch this weekend?',
-  description: 'Vote for your favorite superhero blockbuster! The winning movie will be shown at all participating cinemas this weekend.',
-  options: [
-    {
-      id: '1',
-      movie: {
-        id: '1',
-        title: 'Avengers: Endgame',
-        poster: 'https://images.pexels.com/photos/7991579/pexels-photo-7991579.jpeg?auto=compress&cs=tinysrgb&w=400',
-        genre: 'Action',
-        releaseDate: '2019-04-26',
-        rating: 8.4
-      },
-      votes: 45
-    },
-    {
-      id: '2',
-      movie: {
-        id: '2',
-        title: 'Spider-Man: No Way Home',
-        poster: 'https://images.pexels.com/photos/7991438/pexels-photo-7991438.jpeg?auto=compress&cs=tinysrgb&w=400',
-        genre: 'Action',
-        releaseDate: '2021-12-17',
-        rating: 8.2
-      },
-      votes: 38
-    },
-    {
-      id: '3',
-      movie: {
-        id: '3',
-        title: 'Doctor Strange: Multiverse of Madness',
-        poster: 'https://images.pexels.com/photos/7991680/pexels-photo-7991680.jpeg?auto=compress&cs=tinysrgb&w=400',
-        genre: 'Action',
-        releaseDate: '2022-05-06',
-        rating: 6.9
-      },
-      votes: 32
-    }
-  ],
-  deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-  status: 'active',
-  createdBy: 'admin',
-  createdAt: new Date().toISOString(),
-  totalVotes: 115,
-  media: {
-    type: 'image',
-    url: 'https://images.pexels.com/photos/3709369/pexels-photo-3709369.jpeg?auto=compress&cs=tinysrgb&w=800'
-  }
-};
+import { fetchPollDetail, submitVote } from '../services/polls';
 
 const PollDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -66,78 +13,116 @@ const PollDetail: React.FC = () => {
   const [selectedOption, setSelectedOption] = useState<string>('');
   const [hasVoted, setHasVoted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // In real app, fetch poll data from API
-    setPoll(mockPoll);
-    setHasVoted(!!mockPoll.userVote);
-    setSelectedOption(mockPoll.userVote || '');
+    const token = localStorage.getItem('access');
+    if (!token || !id) {
+      setError('Not authenticated or poll not found');
+      setLoading(false);
+      return;
+    }
+    fetchPollDetail(id, token)
+      .then(data => {
+        setPoll(data);
+        setHasVoted(!!data.userVote);
+        setSelectedOption(data.userVote ? String(data.userVote) : '');
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('Failed to load poll');
+        setLoading(false);
+      });
   }, [id]);
 
-  if (!poll) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#2F0000' }}>
         <div className="text-white text-lg">Loading poll...</div>
       </div>
     );
   }
+  if (error || !poll) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#2F0000' }}>
+        <div className="text-red-400 text-lg">{error || 'Poll not found'}</div>
+      </div>
+    );
+  }
 
-  const timeLeft = new Date(poll.deadline).getTime() - new Date().getTime();
+  // Handle duration field from API response
+  const deadline = poll.duration || poll.deadline;
+  const timeLeft = deadline ? new Date(deadline).getTime() - new Date().getTime() : 0;
   const hoursLeft = Math.max(0, Math.floor(timeLeft / (1000 * 60 * 60)));
   const minutesLeft = Math.max(0, Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60)));
-  const isExpired = timeLeft <= 0;
+  const isExpired = timeLeft <= 0 || !poll.is_active;
 
   const handleSubmitVote = async () => {
-    if (!selectedOption) return;
-    
+    if (!selectedOption || !poll) return;
     setIsSubmitting(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    setHasVoted(true);
-    setIsSubmitting(false);
-    
-    // Update poll data
-    setPoll(prev => prev ? {
-      ...prev,
-      userVote: selectedOption,
-      totalVotes: prev.totalVotes + (prev.userVote ? 0 : 1),
-      options: prev.options.map(option => 
-        option.id === selectedOption 
-          ? { ...option, votes: option.votes + (prev.userVote === selectedOption ? 0 : 1) }
-          : prev.userVote === option.id 
-            ? { ...option, votes: option.votes - 1 }
-            : option
-      )
-    } : null);
+    setError(null);
+    const token = localStorage.getItem('access');
+    if (!token) {
+      setError('Not authenticated');
+      setIsSubmitting(false);
+      return;
+    }
+    try {
+      // Get user ID from the user data
+      const userData = JSON.parse(localStorage.getItem('user') || '{}');
+      if (!userData.id) {
+        setError('User not found. Please log in again.');
+        return;
+      }
+      
+      // Convert user ID to number if it's a string
+      const userId = typeof userData.id === 'string' ? parseInt(userData.id, 10) : userData.id;
+      
+      await submitVote(poll.id.toString(), selectedOption, userId, token);
+      setHasVoted(true);
+      // Optionally, refetch poll details to update vote counts
+      const updatedPoll = await fetchPollDetail(poll.id.toString(), token);
+      setPoll(updatedPoll);
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit vote');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const getPercentage = (votes: number) => {
-    return poll.totalVotes > 0 ? (votes / poll.totalVotes) * 100 : 0;
+  const getPercentage = (optionKey: string) => {
+    if (poll.totalVotes === 0) return 0;
+    const votes = poll.votes?.[optionKey] || 0;
+    return (votes / poll.totalVotes) * 100;
+  };
+
+  const getVoteCount = (optionKey: string) => {
+    return poll.votes?.[optionKey] || 0;
   };
 
   return (
-    <div className="bg-dark-900 py-8 pb-16">
+    <div className="min-h-screen pb-16" style={{ backgroundColor: '#2F0000' }}>
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Back Button */}
         <Button
           variant="ghost"
           onClick={() => navigate('/')}
-          className="mb-6"
+          className="mb-3"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Polls
         </Button>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-3">
             {/* Poll Header */}
             <Card>
-              <div className="space-y-4">
-                <h1 className="text-3xl font-bold text-white">{poll.question}</h1>
+              <div className="space-y-2">
+                <h1 className="text-2xl font-bold text-white">{poll.question}</h1>
                 {poll.description && (
-                  <p className="text-gray-400 text-lg">{poll.description}</p>
+                  <p className="text-gray-400 text-sm">{poll.description}</p>
                 )}
 
                 {/* Poll Media */}
@@ -147,12 +132,12 @@ const PollDetail: React.FC = () => {
                       <img
                         src={poll.media.url}
                         alt="Poll media"
-                        className="w-full h-64 object-cover"
+                        className="w-full h-32 object-cover"
                       />
                     ) : (
                       <video
                         src={poll.media.url}
-                        className="w-full h-64 object-cover"
+                        className="w-full h-32 object-cover"
                         controls
                       />
                     )}
@@ -197,24 +182,26 @@ const PollDetail: React.FC = () => {
 
             {/* Movie Options */}
             <Card>
-              <h2 className="text-xl font-bold text-white mb-4">Choose Your Movie</h2>
-              <div className="space-y-4">
-                {poll.options.map((option) => {
-                  const percentage = getPercentage(option.votes);
-                  const isSelected = selectedOption === option.id;
-                  const userVoted = hasVoted && poll.userVote === option.id;
+              <h2 className="text-lg font-bold text-white mb-2">Choose Your Movie</h2>
+              <div className="space-y-2">
+                {poll.options.map((option, index) => {
+                  const optionKey = String(index + 1); // Convert to 1-based key to match API
+                  const percentage = getPercentage(optionKey);
+                  const voteCount = getVoteCount(optionKey);
+                  const isSelected = selectedOption === optionKey;
+                  const userVoted = hasVoted && poll.userVote === optionKey;
                   
                   return (
                     <div
-                      key={option.id}
-                      className={`border rounded-lg p-4 cursor-pointer transition-all duration-200 ${
+                      key={index}
+                      className={`border rounded-lg p-3 cursor-pointer transition-all duration-200 ${
                         isSelected 
                           ? 'border-primary-500 bg-primary-500/10' 
                           : 'border-dark-600 hover:border-dark-500'
                       } ${isExpired || hasVoted ? 'cursor-default' : ''}`}
                       onClick={() => {
                         if (!isExpired && !hasVoted) {
-                          setSelectedOption(option.id);
+                          setSelectedOption(optionKey);
                         }
                       }}
                     >
@@ -230,35 +217,22 @@ const PollDetail: React.FC = () => {
                           </div>
                         )}
 
-                        {/* Movie Poster */}
-                        <img
-                          src={option.movie.poster}
-                          alt={option.movie.title}
-                          className="w-16 h-20 object-cover rounded-lg"
-                        />
-
                         {/* Movie Info */}
                         <div className="flex-1">
                           <div className="flex items-center space-x-2">
                             <h3 className="text-lg font-semibold text-white">
-                              {option.movie.title}
+                              {option}
                             </h3>
                             {userVoted && (
                               <CheckCircle className="h-5 w-5 text-secondary-400" />
                             )}
                           </div>
-                          <p className="text-gray-400 text-sm">
-                            {option.movie.genre} • {new Date(option.movie.releaseDate).getFullYear()}
-                          </p>
-                          <p className="text-gray-400 text-sm">
-                            Rating: {option.movie.rating}/10
-                          </p>
                           
                           {/* Vote Count and Percentage */}
                           {(hasVoted || isExpired) && (
                             <div className="mt-2">
                               <div className="flex items-center justify-between text-sm mb-1">
-                                <span className="text-gray-400">{option.votes} votes</span>
+                                <span className="text-gray-400">{voteCount} votes</span>
                                 <span className="text-gray-400">{percentage.toFixed(1)}%</span>
                               </div>
                               <div className="w-full bg-dark-700 rounded-full h-2">
@@ -302,17 +276,17 @@ const PollDetail: React.FC = () => {
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-6">
+          <div className="space-y-3">
             {/* Poll Status */}
             <Card>
-              <h3 className="text-lg font-semibold text-white mb-4">Poll Status</h3>
+              <h3 className="text-base font-semibold text-white mb-2">Poll Status</h3>
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-gray-400">Status</span>
                   <span className={`text-sm px-2 py-1 rounded-full ${
-                    poll.status === 'active' ? 'bg-secondary-600 text-white' : 'bg-red-600 text-white'
+                    poll.is_active ? 'bg-secondary-600 text-white' : 'bg-red-600 text-white'
                   }`}>
-                    {poll.status === 'active' ? 'Active' : 'Closed'}
+                    {poll.is_active ? 'Active' : 'Closed'}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -322,32 +296,45 @@ const PollDetail: React.FC = () => {
                 <div className="flex justify-between">
                   <span className="text-gray-400">Deadline</span>
                   <span className="text-white text-sm">
-                    {new Date(poll.deadline).toLocaleDateString()}
+                    {deadline ? new Date(deadline).toLocaleDateString() : 'No deadline set'}
                   </span>
                 </div>
+                {!isExpired && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Time Left</span>
+                    <span className="text-white text-sm">
+                      {hoursLeft > 0 ? `${hoursLeft}h ${minutesLeft}m` : `${minutesLeft}m`}
+                    </span>
+                  </div>
+                )}
               </div>
             </Card>
 
             {/* Quick Stats */}
             {(hasVoted || isExpired) && (
               <Card>
-                <h3 className="text-lg font-semibold text-white mb-4">Current Results</h3>
-                <div className="space-y-3">
+                <h3 className="text-base font-semibold text-white mb-2">Current Results</h3>
+                <div className="space-y-2">
                   {poll.options
-                    .sort((a, b) => b.votes - a.votes)
-                    .map((option, index) => (
-                      <div key={option.id} className="flex items-center space-x-2">
+                    .map((option, index) => {
+                      const optionKey = String(index + 1);
+                      const voteCount = getVoteCount(optionKey);
+                      return { option, index, optionKey, voteCount };
+                    })
+                    .sort((a, b) => b.voteCount - a.voteCount)
+                    .map(({ option, index, optionKey, voteCount }, sortedIndex) => (
+                      <div key={index} className="flex items-center space-x-2">
                         <div className={`text-lg font-bold ${
-                          index === 0 ? 'text-accent-400' : 'text-gray-400'
+                          sortedIndex === 0 ? 'text-accent-400' : 'text-gray-400'
                         }`}>
-                          #{index + 1}
+                          #{sortedIndex + 1}
                         </div>
                         <div className="flex-1">
                           <div className="text-white text-sm font-medium">
-                            {option.movie.title}
+                            {option}
                           </div>
                           <div className="text-gray-400 text-xs">
-                            {option.votes} votes ({getPercentage(option.votes).toFixed(1)}%)
+                            {voteCount} votes ({getPercentage(optionKey).toFixed(1)}%)
                           </div>
                         </div>
                       </div>

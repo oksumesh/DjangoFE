@@ -17,25 +17,41 @@ export interface Movie {
 
 export interface PollOption {
   id: string;
+  text: string;
   movie: Movie;
   votes: number;
 }
 
 export interface Poll {
-  id: string;
+  id: string | number;
   question: string;
   description?: string;
-  options: PollOption[];
-  deadline: string;
-  status: 'active' | 'closed' | 'draft';
-  createdBy: string;
-  createdAt: string;
+  options: string[]; // API returns options as string array
+  deadline?: string; // Legacy field, use duration instead
+  status?: 'active' | 'closed' | 'draft'; // Optional, use is_active instead
+  createdBy: {
+    id: string | number;
+    firstName?: string | null;
+    lastName?: string | null;
+    email: string;
+  };
+  createdAt?: string;
+  created_at?: string; // API uses snake_case
+  updated_at?: string; // API uses snake_case
+  category: string;
+  is_active?: boolean; // Primary status field from API
+  is_anonymous?: boolean;
+  duration?: string; // Primary deadline field from API
+  visibility?: string;
   media?: {
     type: 'image' | 'video';
     url: string;
   };
+  image_url?: string;
   totalVotes: number;
   userVote?: string;
+  votes?: { [key: string]: number }; // API votes structure: {"1": 0, "2": 0, "3": 0}
+  error?: string | null; // API error field
 }
 
 export interface Cinema {
